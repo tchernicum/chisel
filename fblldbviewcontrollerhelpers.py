@@ -8,8 +8,35 @@
 # of patent rights can be found in the PATENTS file in the same directory.
 
 import lldb
+
 import fblldbbase as fb
 import fblldbobjcruntimehelpers as runtimeHelpers
+
+def presentViewController(viewController):
+  vc = '(%s)' % (viewController)
+  
+  if fb.evaluateBooleanExpression('%s != nil && ((BOOL)[(id)%s isKindOfClass:(Class)[UIViewController class]])' % (vc, vc)):
+    notPresented = fb.evaluateBooleanExpression('[%s presentingViewController] == nil' % vc)
+    
+    if notPresented:
+      fb.evaluateEffect('[[[[UIApplication sharedApplication] keyWindow] rootViewController] presentViewController:%s animated:YES completion:nil]' % vc)
+    else:
+      raise Exception('Argument is already presented')
+  else:
+    raise Exception('Argument must be a UIViewController')
+
+def dismissViewController(viewController):
+  vc = '(%s)' % (viewController)
+  
+  if fb.evaluateBooleanExpression('%s != nil && ((BOOL)[(id)%s isKindOfClass:(Class)[UIViewController class]])' % (vc, vc)):
+    isPresented = fb.evaluateBooleanExpression('[%s presentingViewController] != nil' % vc)
+    
+    if isPresented:
+      fb.evaluateEffect('[(UIViewController *)%s dismissViewControllerAnimated:YES completion:nil]' % vc)
+    else:
+      raise Exception('Argument must be presented')
+  else:
+    raise Exception('Argument must be a UIViewController')
 
 def viewControllerRecursiveDescription(vc):
   return _recursiveViewControllerDescriptionWithPrefixAndChildPrefix(fb.evaluateObjectExpression(vc), '', '', '')
@@ -36,7 +63,6 @@ def _recursiveViewControllerDescriptionWithPrefixAndChildPrefix(vc, string, pref
   nextPrefix = childPrefix + '   |'
 
   numChildViewControllers = fb.evaluateIntegerExpression('(int)[(id)[%s childViewControllers] count]' % (vc))
-  childViewControllers = fb.evaluateExpression('(id)[%s childViewControllers]' % (vc))
 
   for i in range(0, numChildViewControllers):
     viewController = fb.evaluateExpression('(id)[(id)[%s childViewControllers] objectAtIndex:%d]' % (vc, i))
@@ -47,7 +73,7 @@ def _recursiveViewControllerDescriptionWithPrefixAndChildPrefix(vc, string, pref
 
     if isModal:
       modalVC = fb.evaluateObjectExpression('(id)[(id)%s presentedViewController]' % (vc))
-      s += _recursiveViewControllerDescriptionWithPrefixAndChildPrefix(modalVC, string, childPrefix + '  *M' , nextPrefix)
+      s += _recursiveViewControllerDescriptionWithPrefixAndChildPrefix(modalVC, string, childPrefix + '  *M', nextPrefix)
       s += '\n// \'*M\' means the view controller is presented modally.'
 
   return string + s

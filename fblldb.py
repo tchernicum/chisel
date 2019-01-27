@@ -11,8 +11,7 @@ import lldb
 
 import imp
 import os
-import shlex
-import sys
+
 from optparse import OptionParser
 
 import fblldbbase as fb
@@ -41,6 +40,7 @@ def loadCommandsInDirectory(commandsDirectory):
 def loadCommand(module, command, directory, filename, extension):
   func = makeRunCommand(command, os.path.join(directory, filename + extension))
   name = command.name()
+  helpText = command.description().strip().splitlines()[0] # first line of description
 
   key = filename + '_' + name
 
@@ -49,13 +49,16 @@ def loadCommand(module, command, directory, filename, extension):
   functionName = '__' + key
 
   lldb.debugger.HandleCommand('script ' + functionName + ' = sys.modules[\'' + module.__name__ + '\']._loadedFunctions[\'' + key + '\']')
-  lldb.debugger.HandleCommand('command script add -f ' + functionName + ' ' + name)
+  lldb.debugger.HandleCommand('command script add --help "{help}" --function {function} {name}'.format(
+    help=helpText.replace('"', '\\"'), # escape quotes
+    function=functionName,
+    name=name))
 
 def makeRunCommand(command, filename):
-  def runCommand(debugger, input, result, dict):
-    splitInput = shlex.split(input)
-    options = None
-    args = None
+  def runCommand(debugger, input, exe_ctx, result, _):
+    command.result = result
+    command.context = exe_ctx
+    splitInput = command.lex(input)
 
     # OptionParser will throw in the case where you want just one big long argument and no
     # options and you enter something that starts with '-' in the argument. e.g.:
@@ -64,7 +67,7 @@ def makeRunCommand(command, filename):
     # thing.
     options = command.options()
     if len(options) == 0:
-      if not '--' in splitInput:
+      if '--' not in splitInput:
         splitInput.insert(0, '--')
 
     parser = optionParserForCommand(command)
@@ -74,7 +77,7 @@ def makeRunCommand(command, filename):
     # the initial args form an expression and combine them into a single arg.
     if len(args) > len(command.args()):
       overhead = len(args) - len(command.args())
-      head = args[:overhead+1] # Take N+1 and reduce to 1.
+      head = args[:overhead + 1] # Take N+1 and reduce to 1.
       args = [' '.join(head)] + args[-overhead:]
 
     if validateArgsForCommand(args, command):
@@ -122,20 +125,22 @@ def helpForCommand(command, filename):
   if command.args():
     help += '\n\nArguments:'
     for arg in command.args():
-      help += '\n  <' + arg.argName + '>; Type: ' + arg.argType + '; ' + arg.help
+      help += '\n  <' + arg.argName + '>; '
+      if arg.argType:
+        help += 'Type: ' + arg.argType + '; '
+      help += arg.help
       argSyntax += ' <' + arg.argName + '>'
 
   if command.options():
     help += '\n\nOptions:'
     for option in command.options():
 
-      optionFlag = ''
       if option.longName and option.shortName:
         optionFlag = option.longName + '/' + option.shortName
       elif option.longName:
         optionFlag = option.longName
       else:
-        optionFlag = optiob.shortName
+        optionFlag = option.shortName
 
       help += '\n  ' + optionFlag + ' '
 
@@ -145,15 +150,13 @@ def helpForCommand(command, filename):
       help += '; ' + option.help
 
       optionSyntax += ' [{name}{arg}]'.format(
-        name= option.longName or option.shortName,
-        arg = '' if option.boolean else ('=' + option.argName)
+        name=(option.longName or option.shortName),
+        arg=('' if option.boolean else ('=' + option.argName))
       )
 
   help += '\n\nSyntax: ' + command.name() + optionSyntax + argSyntax
 
   help += '\n\nThis command is implemented as %s in %s.' % (command.__class__.__name__, filename)
-
-  help += '\n\n(LLDB adds the next line, sorry...)'
 
   return help
 
@@ -166,4 +169,3 @@ def usageForCommand(command):
       usage += ' ' + arg.argName
 
   return usage
-

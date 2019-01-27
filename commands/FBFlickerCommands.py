@@ -8,12 +8,11 @@
 # of patent rights can be found in the PATENTS file in the same directory.
 
 import os
-import time
+import sys
 
 import lldb
 import fblldbbase as fb
 import fblldbviewhelpers as viewHelpers
-import fblldbinputhelpers as inputHelpers
 import fblldbobjcruntimehelpers as runtimeHelpers
 
 def lldbcommands():
@@ -56,7 +55,7 @@ class FBViewSearchCommand(fb.FBCommand):
   def run(self, arguments, options):
     print '\nUse the following and (q) to quit.\n(w) move to superview\n(s) move to first subview\n(a) move to previous sibling\n(d) move to next sibling\n(p) print the hierarchy\n'
 
-    object = fb.evaluateObjectExpression(arguments[0])
+    object = fb.evaluateInputExpression(arguments[0])
     walker = FlickerWalker(object)
     walker.run()
 
@@ -64,18 +63,15 @@ class FlickerWalker:
   def __init__(self, startView):
     self.setCurrentView(startView)
 
-    self.handler = inputHelpers.FBInputHandler(lldb.debugger, self.inputCallback)
-    self.handler.start()
-
   def run(self):
-    while self.handler.isValid():
-      self.flicker()
-
-  def flicker(self):
-    viewHelpers.setViewHidden(self.currentView, True)
-    time.sleep(0.1)
-    viewHelpers.setViewHidden(self.currentView, False)
-    time.sleep(0.3)
+    self.keepRunning = True
+    initialAsync = lldb.debugger.GetAsync()
+    lldb.debugger.SetAsync(True) #Needed so XCode doesn't hang if tap on Continue while lldb is waiting for user input in 'vs' mode
+    while self.keepRunning:
+      charRead = sys.stdin.readline().rstrip("\n")
+      self.inputCallback(charRead)
+    else:
+      lldb.debugger.SetAsync(initialAsync)
 
   def inputCallback(self, input):
     oldView = self.currentView
@@ -85,45 +81,47 @@ class FlickerWalker:
       os.system(cmd)
 
       print '\nI hope ' + oldView + ' was what you were looking for. I put it on your clipboard.'
+      viewHelpers.unmaskView(oldView)
+      self.keepRunning = False
 
-      self.handler.stop()
     elif input == 'w':
       v = superviewOfView(self.currentView)
       if not v:
         print 'There is no superview. Where are you trying to go?!'
-      self.setCurrentView(v)
+      self.setCurrentView(v, oldView)
     elif input == 's':
       v = firstSubviewOfView(self.currentView)
       if not v:
         print '\nThe view has no subviews.\n'
-      self.setCurrentView(v)
+      self.setCurrentView(v, oldView)
     elif input == 'd':
       v = nthSiblingOfView(self.currentView, -1)
       if v == oldView:
         print '\nThere are no sibling views to this view.\n'
-      self.setCurrentView(v)
+      self.setCurrentView(v, oldView)
     elif input == 'a':
       v = nthSiblingOfView(self.currentView, 1)
       if v == oldView:
         print '\nThere are no sibling views to this view.\n'
-      self.setCurrentView(v)
+      self.setCurrentView(v, oldView)
     elif input == 'p':
-      recusionName = 'recursiveDescription'
+      recursionName = 'recursiveDescription'
       isMac = runtimeHelpers.isMacintoshArch()
-      
+
       if isMac:
         recursionName = '_subtreeDescription'
-      
-      lldb.debugger.HandleCommand('po [(id)' + oldView + ' ' + recusionName + ']')
+
+      print fb.describeObject('[(id){} {}]'.format(oldView, recursionName))
     else:
       print '\nI really have no idea what you meant by \'' + input + '\'... =\\\n'
 
-    viewHelpers.setViewHidden(oldView, False)
-
-  def setCurrentView(self, view):
+  def setCurrentView(self, view, oldView=None):
     if view:
       self.currentView = view
-      lldb.debugger.HandleCommand('po (id)' + view)
+      if oldView:
+        viewHelpers.unmaskView(oldView)
+      viewHelpers.maskView(self.currentView, 'red', '0.4')
+      print fb.describeObject(view)
 
 def superviewOfView(view):
   superview = fb.evaluateObjectExpression('[' + view + ' superview]')

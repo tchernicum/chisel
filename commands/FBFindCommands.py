@@ -19,7 +19,6 @@ def lldbcommands():
   return [
     FBFindViewControllerCommand(),
     FBFindViewCommand(),
-    FBFindViewByAccessibilityLabelCommand(),
     FBTapLoggerCommand(),
   ]
 
@@ -94,41 +93,14 @@ class FBFindViewCommand(fb.FBCommand):
 
 def printMatchesInViewOutputStringAndCopyFirstToClipboard(needle, haystack):
   first = None
-  for match in re.finditer('.*<.*(' + needle + ').*: (0x[0-9a-fA-F]*);.*', haystack, re.IGNORECASE):
+  for match in re.finditer('.*<.*(' + needle + ')\\S*: (0x[0-9a-fA-F]*);.*', haystack, re.IGNORECASE):
     view = match.groups()[-1]
     className = fb.evaluateExpressionValue('(id)[(' + view + ') class]').GetObjectDescription()
     print('{} {}'.format(view, className))
-    if first == None:
+    if first is None:
       first = view
       cmd = 'echo %s | tr -d "\n" | pbcopy' % view
       os.system(cmd)
-
-
-class FBFindViewByAccessibilityLabelCommand(fb.FBCommand):
-  def name(self):
-    return 'fa11y'
-
-  def description(self):
-      return 'Find the views whose accessibility labels match labelRegex and puts the address of the first result on the clipboard.'
-
-  def args(self):
-    return [ fb.FBCommandArgument(arg='labelRegex', type='string', help='The accessibility label regex to search the view hierarchy for.') ]
-
-  def run(self, arguments, options):
-    first = None
-    haystack = fb.evaluateExpressionValue('(id)[[[UIApplication sharedApplication] keyWindow] recursiveDescription]').GetObjectDescription()
-    needle = arguments[0]
-
-    allViews = re.findall('.* (0x[0-9a-fA-F]*);.*', haystack)
-    for view in allViews:
-      a11yLabel = fb.evaluateExpressionValue('(id)[(' + view + ') accessibilityLabel]').GetObjectDescription()
-      if re.match(r'.*' + needle + '.*', a11yLabel, re.IGNORECASE):
-        print('{} {}'.format(view, a11yLabel))
-
-        if first == None:
-          first = view
-          cmd = 'echo %s | tr -d "\n" | pbcopy' % first
-          os.system(cmd)
 
 
 class FBTapLoggerCommand(fb.FBCommand):
@@ -150,6 +122,6 @@ class FBTapLoggerCommand(fb.FBCommand):
   @staticmethod
   def taplog_callback(frame, bp_loc, internal_dict):
     parameterExpr = objc.functionPreambleExpressionForObjectParameterAtIndex(0)
-    lldb.debugger.HandleCommand('po [[[%s allTouches] anyObject] view]' % (parameterExpr))
+    print fb.describeObject('[[[%s allTouches] anyObject] view]' % (parameterExpr))
     # We don't want to proceed event (click on button for example), so we just skip it
     lldb.debugger.HandleCommand('thread return')

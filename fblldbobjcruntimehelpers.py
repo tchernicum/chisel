@@ -7,6 +7,8 @@
 # LICENSE file in the root directory of this source tree. An additional grant
 # of patent rights can be found in the PATENTS file in the same directory.
 
+import re
+
 import lldb
 import fblldbbase as fb
 
@@ -16,7 +18,7 @@ def objc_getClass(className):
   return value
 
 def object_getClass(object):
-  command = '(void*)object_getClass({})'.format(object)
+  command = '(void*)object_getClass((id){})'.format(object)
   value = fb.evaluateExpression(command)
   return value
 
@@ -30,6 +32,10 @@ def class_getSuperclass(klass):
   value = fb.evaluateExpression(command)
   return value
 
+def class_isMetaClass(klass):
+    command = 'class_isMetaClass((Class){})'.format(klass)
+    return fb.evaluateBooleanExpression(command)
+
 def class_getInstanceMethod(klass, selector):
   command = '(void*)class_getInstanceMethod((Class){}, @selector({}))'.format(klass, selector)
   value = fb.evaluateExpression(command)
@@ -38,11 +44,13 @@ def class_getInstanceMethod(klass, selector):
 def currentArch():
   targetTriple = lldb.debugger.GetSelectedTarget().GetTriple()
   arch = targetTriple.split('-')[0]
+  if arch == 'x86_64h':
+    arch = 'x86_64'
   return arch
 
 def functionPreambleExpressionForSelf():
   import re
-  
+
   arch = currentArch()
   expressionForSelf = None
   if arch == 'i386':
@@ -56,23 +64,21 @@ def functionPreambleExpressionForSelf():
   return expressionForSelf
 
 def functionPreambleExpressionForObjectParameterAtIndex(parameterIndex):
-  import re
-  
   arch = currentArch()
   expresssion = None
   if arch == 'i386':
     expresssion = '*(id*)($esp + ' + str(12 + parameterIndex * 4) + ')'
   elif arch == 'x86_64':
-    if (parameterIndex > 3):
-      raise Exception("Current implementation can not return object at index greater than 3 for arc x86_64")
+    if parameterIndex > 3:
+      raise Exception("Current implementation can not return object at index greater than 3 for x86_64")
     registersList = ['rdx', 'rcx', 'r8', 'r9']
     expresssion = '(id)$' + registersList[parameterIndex]
   elif arch == 'arm64':
-    if (parameterIndex > 5):
-      raise Exception("Current implementation can not return object at index greater than 5 for arm64")  
+    if parameterIndex > 5:
+      raise Exception("Current implementation can not return object at index greater than 5 for arm64")
     expresssion = '(id)$x' + str(parameterIndex + 2)
   elif re.match(r'^armv.*$', arch):
-    if (parameterIndex > 3):
+    if parameterIndex > 1:
       raise Exception("Current implementation can not return object at index greater than 1 for arm32")
     expresssion = '(id)$r' + str(parameterIndex + 2)
   return expresssion
@@ -81,8 +87,14 @@ def isMacintoshArch():
   arch = currentArch()
   if not arch == 'x86_64':
     return False
-  
-  nsClassName ='NSApplication'
+
+  nsClassName = 'NSApplication'
   command = '(void*)objc_getClass("{}")'.format(nsClassName)
 
   return (fb.evaluateBooleanExpression(command + '!= nil'))
+
+def isIOSSimulator():
+  return fb.evaluateExpressionValue('(id)[[UIDevice currentDevice] model]').GetObjectDescription().lower().find('simulator') >= 0
+
+def isIOSDevice():
+  return not isMacintoshArch() and not isIOSSimulator()

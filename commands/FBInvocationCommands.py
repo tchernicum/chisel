@@ -89,7 +89,7 @@ def stackStartAddressInSelectedFrame(frame):
     return int(frame.EvaluateExpression('($esp + 8)').GetValue())
   else:
     return int(frame.EvaluateExpression('($ebp + 8)').GetValue())
-    
+
 
 def findArgAtIndexFromStackFrame(frame, index):
   return fb.evaluateExpression('*(int *)' + str(findArgAdressAtIndexFromStackFrame(frame, index)))
@@ -101,12 +101,6 @@ def findArgAdressAtIndexFromStackFrame(frame, index):
 
 def prettyPrintInvocation(frame, invocation):
   object = fb.evaluateExpression('(id)[(id)' + invocation + ' target]')
-  selector = fb.evaluateExpressionValue('(char *)sel_getName((SEL)[(id)' + invocation + ' selector])').GetSummary()
-  selector = re.sub(r'^"|"$', '', selector)
-
-  objectClassValue = fb.evaluateExpressionValue('(id)object_getClass((id)' + object + ')')
-  objectClass = objectClassValue.GetObjectDescription()
-
   description = fb.evaluateExpressionValue('(id)' + invocation).GetObjectDescription()
   argDescriptions = description.splitlines(True)[4:]
 
@@ -120,9 +114,6 @@ def prettyPrintInvocation(frame, invocation):
     for argDescription in argDescriptions:
       s = re.sub(r'argument [0-9]+: ', '', argDescription)
 
-      lldb.debugger.HandleCommand('expr void *$v')
-      lldb.debugger.HandleCommand('expr (void)[' + invocation + ' getArgument:&$v atIndex:' + str(index) + ']')
-
       address = findArgAdressAtIndexFromStackFrame(frame, index)
 
       encoding = s.split(' ')[0]
@@ -134,36 +125,36 @@ def prettyPrintInvocation(frame, invocation):
         print readableString
       else:
         if encoding[0] == '{':
-          encoding = encoding[1:len(encoding)-1]
+          encoding = encoding[1:]
         print (hex(address) + ', address of ' + encoding + ' ' + description).strip()
 
       index += 1
 
 def argumentAsString(frame, address, encoding):
   if encoding[0] == '{':
-    encoding = encoding[1:len(encoding)-1]
+    encoding = encoding[1:]
 
   encodingMap = {
-    'c' : 'char',
-    'i' : 'int',
-    's' : 'short',
-    'l' : 'long',
-    'q' : 'long long',
+    'c': 'char',
+    'i': 'int',
+    's': 'short',
+    'l': 'long',
+    'q': 'long long',
 
-    'C' : 'unsigned char',
-    'I' : 'unsigned int',
-    'S' : 'unsigned short',
-    'L' : 'unsigned long',
-    'Q' : 'unsigned long long',
+    'C': 'unsigned char',
+    'I': 'unsigned int',
+    'S': 'unsigned short',
+    'L': 'unsigned long',
+    'Q': 'unsigned long long',
 
-    'f' : 'float',
-    'd' : 'double',
-    'B' : 'bool',
-    'v' : 'void',
-    '*' : 'char *',
-    '@' : 'id',
-    '#' : 'Class',
-    ':' : 'SEL',
+    'f': 'float',
+    'd': 'double',
+    'B': 'bool',
+    'v': 'void',
+    '*': 'char *',
+    '@': 'id',
+    '#': 'Class',
+    ':': 'SEL',
   }
 
   pointers = ''
@@ -202,5 +193,5 @@ def argumentAsString(frame, address, encoding):
         description = value.GetSummary()
       if description:
         return type + ': ' + description
-  
+
   return None
